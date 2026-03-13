@@ -1,5 +1,14 @@
 # PV-LIO-PLUS
 
+## 中文文档 / Chinese Documentation
+
+- [系统架构文档](doc/ARCHITECTURE_CN.md) — 模块划分、数据流、坐标系、依赖关系
+- [算法详解文档](doc/ALGORITHM_CN.md) — 状态估计、IMU预积分、迭代EKF、体素地图、点到平面匹配
+- [代码结构文档](doc/CODE_STRUCTURE_CN.md) — 各源文件详解、函数说明、数据结构
+- [配置与使用指南](doc/CONFIGURATION_CN.md) — 编译部署、参数说明、运行方法、常见问题
+
+---
+
 This code is forked from [PV-LIO](https://github.com/HViktorTsoi/PV-LIO.git). The [PV-LIO](https://github.com/HViktorTsoi/PV-LIO.git) algorithm is optimized based on the original source code of the [VoxelMap](https://github.com/hku-mars/VoxelMap.git) algorithm. Inspired by [Fast-LIO2](https://github.com/hku-mars/FAST_LIO.git), it utilizes iKFoM as its solver and incorporates tightly-coupled IMU integration. Compared to the original code, PV-LIO features a clearer structure, more stable performance, and higher pose accuracy.
 
 Building upon [VoxelMap](https://github.com/hku-mars/VoxelMap.git), [VoxelMap++](https://github.com/uestc-icsp/VoxelMapPlus_Public.git) optimizes the original local map manager and enhances the residual calculation method. This results in improved computational efficiency and reduced memory consumption.
