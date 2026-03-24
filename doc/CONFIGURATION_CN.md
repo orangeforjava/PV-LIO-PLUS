@@ -452,6 +452,8 @@ A: 可尝试以下优化：
 
 `b_use_voxelmap_plus` 仍然保留，用于兼容旧配置；当 `map_type` 被显式设置时，以 `map_type` 为准。
 
+当前仓库里 `r_voxelmap` 没有单独拆分成新的源文件；它的选择入口在 `src/voxelMapping.cpp` 中的 `MapBackend::R_VOXELMAP` 分支，实际复用的是 `include/voxel_map_util.hpp` 里的递归八叉树建图与残差计算路径。
+
 **推荐**：一般情况下建议使用 `voxelmap_plus`，其计算效率更高且内存占用更少；若需要和递归体素方案对比，可将 `map_type` 设为 `r_voxelmap`。
 
 ---
