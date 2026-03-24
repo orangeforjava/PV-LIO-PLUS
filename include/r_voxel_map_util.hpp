@@ -172,30 +172,36 @@ namespace r_voxel_map_ns
 
         bool UpdatePoint(const pointWithCov &pv, const double sigma_num)
         {
-            all_points_.push_back(pv);
+            // This root-level counter tracks all accepted incremental points for maintenance rebuild decisions.
             ++new_points_since_rebuild_;
 
             OctoTree *best_node = nullptr;
             ptpl best_ptpl;
             double best_prob = 0.0;
-            find_best_match(pv, sigma_num, best_node, best_ptpl, best_prob);
+            std::vector<OctoTree *> current_path;
+            std::vector<OctoTree *> best_path;
+            find_best_match(pv, sigma_num, best_node, best_ptpl, best_prob, current_path, best_path);
 
             if (best_node != nullptr)
             {
-                if (best_node != this)
+                // A successful match updates every node on the root-to-best-node path, including the root.
+                for (auto *node : best_path)
                 {
-                    best_node->all_points_.push_back(pv);
+                    node->all_points_.push_back(pv);
                 }
                 best_node->append_plane_point(pv);
                 best_node->recompute_plane_from_inliers();
                 if (!best_node->plane_ptr_->is_plane || !best_node->passes_incremental_plane_validity_check())
                 {
-                    rebuild_from_all_points();
+                    // Localize repair to the matched subtree; root-level maintenance rebuilds still happen below.
+                    best_node->rebuild_from_all_points();
                     return false;
                 }
             }
             else
             {
+                // Unmatched points remain tracked at the root until a later root-level rebuild repartitions them.
+                all_points_.push_back(pv);
                 pending_outliers_.push_back(pv);
             }
 
@@ -791,8 +797,13 @@ namespace r_voxel_map_ns
         }
 
         void find_best_match(const pointWithCov &pv, const double sigma_num,
-                             OctoTree *&best_node, ptpl &best_ptpl, double &best_prob)
+                             OctoTree *&best_node, ptpl &best_ptpl, double &best_prob,
+                             std::vector<OctoTree *> &current_path,
+                             std::vector<OctoTree *> &best_path)
         {
+            // current_path is the active DFS stack; best_path stores the stack snapshot for the best match so far.
+            current_path.push_back(this);
+
             if (plane_ptr_->is_plane)
             {
                 ptpl candidate_ptpl;
@@ -803,6 +814,7 @@ namespace r_voxel_map_ns
                     best_prob = candidate_prob;
                     best_node = this;
                     best_ptpl = candidate_ptpl;
+                    best_path = current_path;
                 }
             }
 
@@ -810,9 +822,11 @@ namespace r_voxel_map_ns
             {
                 if (leaf != nullptr)
                 {
-                    leaf->find_best_match(pv, sigma_num, best_node, best_ptpl, best_prob);
+                    leaf->find_best_match(pv, sigma_num, best_node, best_ptpl, best_prob, current_path, best_path);
                 }
             }
+
+            current_path.pop_back();
         }
 
         void find_best_match_const(const pointWithCov &pv, const double sigma_num,
