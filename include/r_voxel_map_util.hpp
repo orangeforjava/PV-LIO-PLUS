@@ -184,7 +184,7 @@ namespace r_voxel_map_ns
             {
                 best_node->append_plane_point(pv);
                 best_node->recompute_plane_from_inliers();
-                if (!best_node->plane_ptr_->is_plane)
+                if (!best_node->plane_ptr_->is_plane || !best_node->passes_incremental_plane_validity_check())
                 {
                     rebuild_from_all_points();
                     return false;
@@ -536,8 +536,9 @@ namespace r_voxel_map_ns
             }
         }
 
+        template <typename PointContainer>
         bool plane_validity_check(const Plane &plane, const size_t original_point_count,
-                                  const std::vector<pointWithCov> &inliers,
+                                  const PointContainer &inliers,
                                   std::vector<pointWithCov> &valid_inliers,
                                   std::vector<pointWithCov> &invalid_points) const
         {
@@ -551,7 +552,7 @@ namespace r_voxel_map_ns
             const double grid_resolution = voxel_size_ / std::max(1.0, static_cast<double>(validity_grid_divider));
             if (grid_resolution <= 0.0)
             {
-                valid_inliers = inliers;
+                valid_inliers.assign(inliers.begin(), inliers.end());
                 return true;
             }
 
@@ -628,7 +629,7 @@ namespace r_voxel_map_ns
 
             if (best_cluster.empty() || static_cast<double>(best_cluster_points) < inlier_ratio_threshold * static_cast<double>(original_point_count))
             {
-                invalid_points = inliers;
+                invalid_points.assign(inliers.begin(), inliers.end());
                 return false;
             }
 
@@ -713,6 +714,23 @@ namespace r_voxel_map_ns
                 recompute_plane_covariance(plane_points_, eigen_data, plane_ptr_);
             }
             plane_ptr_->is_update = true;
+        }
+
+        bool passes_incremental_plane_validity_check() const
+        {
+            if (!plane_ptr_->is_plane)
+            {
+                return false;
+            }
+
+            if (plane_points_.size() < static_cast<size_t>(min_points_threshold))
+            {
+                return false;
+            }
+
+            std::vector<pointWithCov> valid_inliers;
+            std::vector<pointWithCov> invalid_points;
+            return plane_validity_check(*plane_ptr_, plane_points_.size(), plane_points_, valid_inliers, invalid_points);
         }
 
         void rebuild_from_all_points()
