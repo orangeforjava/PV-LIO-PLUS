@@ -50,6 +50,8 @@
 #include <unistd.h>
 
 #include <Eigen/Core>
+#include <algorithm>
+#include <cctype>
 #include <csignal>
 #include <fstream>
 #include <mutex>
@@ -147,6 +149,78 @@ int publish_max_voxel_layer = 0;
 std::unordered_map<voxel_map_ns::VOXEL_LOC, voxel_map_ns::OctoTree *> voxel_map;
 std::unordered_map<voxel_map_plus_ns::VOXEL_LOC, voxel_map_plus_ns::UnionFindNode *> voxel_map_plus;
 bool b_use_voxelmap_plus = false;
+
+enum class MapBackend
+{
+    VOXELMAP,
+    R_VOXELMAP,
+    VOXELMAP_PLUS
+};
+
+MapBackend g_map_backend = MapBackend::VOXELMAP;
+
+bool UseVoxelMapPlusBackend()
+{
+    return g_map_backend == MapBackend::VOXELMAP_PLUS;
+}
+
+std::string GetMapBackendName()
+{
+    switch (g_map_backend)
+    {
+    case MapBackend::R_VOXELMAP:
+        return "r_voxelmap";
+    case MapBackend::VOXELMAP_PLUS:
+        return "voxelmap_plus";
+    case MapBackend::VOXELMAP:
+    default:
+        return "voxelmap";
+    }
+}
+
+std::string GetBackendOutputStem()
+{
+    switch (g_map_backend)
+    {
+    case MapBackend::R_VOXELMAP:
+        return "pv_lio_r_voxelmap";
+    case MapBackend::VOXELMAP_PLUS:
+        return "pv_lio_plus";
+    case MapBackend::VOXELMAP:
+    default:
+        return "pv_lio";
+    }
+}
+
+MapBackend ParseMapBackend(const std::string &map_type, bool use_voxelmap_plus)
+{
+    std::string normalized = map_type;
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    if (normalized.empty())
+    {
+        return use_voxelmap_plus ? MapBackend::VOXELMAP_PLUS : MapBackend::VOXELMAP;
+    }
+
+    if (normalized == "voxelmap")
+    {
+        return MapBackend::VOXELMAP;
+    }
+    if (normalized == "r_voxelmap" || normalized == "r-voxelmap" || normalized == "rvoxelmap")
+    {
+        return MapBackend::R_VOXELMAP;
+    }
+    if (normalized == "voxelmap_plus" || normalized == "voxelmap++" || normalized == "voxelmapplus")
+    {
+        return MapBackend::VOXELMAP_PLUS;
+    }
+
+    ROS_WARN_STREAM("Unknown mapping/map_type '" << map_type
+                                                 << "', fallback to "
+                                                 << (use_voxelmap_plus ? "voxelmap_plus" : "voxelmap"));
+    return use_voxelmap_plus ? MapBackend::VOXELMAP_PLUS : MapBackend::VOXELMAP;
+}
 
 /*** EKF inputs and output ***/
 MeasureGroup Measures;
@@ -884,13 +958,17 @@ int main(int argc, char **argv)
         nh.param<vector<double>>("mapping/extrinsic_R", extrinR, vector<double>());
         nh.param<int>("mapping/update_size_threshold", voxel_map_plus_ns::update_size_threshold, 5);
         nh.param<double>("mapping/sigma_num", sigma_num, 3);
+        std::string map_type;
         nh.param<bool>("mapping/b_use_voxelmap_plus", b_use_voxelmap_plus, false);
+        nh.param<string>("mapping/map_type", map_type, "");
+        g_map_backend = ParseMapBackend(map_type, b_use_voxelmap_plus);
         std::cout << "filter_size_surf_min:" << filter_size_surf_min << std::endl;
         voxel_map_plus_ns::sigma_num        = static_cast<int>(sigma_num);
         voxel_map_plus_ns::max_points_size  = max_points_size;
         voxel_map_plus_ns::voxel_size       = voxel_size;
         voxel_map_plus_ns::planer_threshold = plannar_threshold;
         voxel_map_plus_ns::quater_length    = voxel_size / 4;
+        std::cout << "map backend: " << GetMapBackendName() << std::endl;
 
         // noise model params
         nh.param<double>("noise_model/ranging_cov", ranging_cov, 0.02);
@@ -937,7 +1015,7 @@ int main(int argc, char **argv)
 
     double epsi[23] = {0.001};
     fill(epsi, epsi + 23, 0.001);
-    if (b_use_voxelmap_plus)
+    if (UseVoxelMapPlusBackend())
         kf.init_dyn_share(get_f, df_dx, df_dw, observation_model_share_plus, NUM_MAX_ITERATIONS, epsi);
     else
         kf.init_dyn_share(get_f, df_dx, df_dw, observation_model_share, NUM_MAX_ITERATIONS, epsi);
@@ -1007,7 +1085,7 @@ int main(int argc, char **argv)
                 // body 转 world
                 PointCloudXYZI::Ptr feats_world(new PointCloudXYZI);
                 transformLidar2World(state_point, feats_undistort, feats_world);
-                if (b_use_voxelmap_plus)
+                if (UseVoxelMapPlusBackend())
                 {
                     std::vector<voxel_map_plus_ns::pointWithCov> pv_list(feats_undistort->size());
                     for (size_t i = 0; i < feats_world->size(); i++)
@@ -1045,8 +1123,10 @@ int main(int argc, char **argv)
                 }
 
                 double map_build_time = (ros::WallTime::now() - t1).toSec();
-                if (b_use_voxelmap_plus)
+                if (UseVoxelMapPlusBackend())
                     std::cout << std::fixed << "[Init Map] Build voxel map plus: " << map_build_time * 1000 << "s\n";
+                else if (g_map_backend == MapBackend::R_VOXELMAP)
+                    std::cout << std::fixed << "[Init Map] Build r-voxelmap: " << map_build_time * 1000 << "s\n";
                 else
                     std::cout << std::fixed << "[Init Map] Build voxel map: " << map_build_time * 1000 << "s \n";
 
@@ -1062,7 +1142,7 @@ int main(int argc, char **argv)
 
             //! step4. 体坐标系下各点的协方差阵，迭代时不变，可复用
             var_down_lidar.clear();
-            if (b_use_voxelmap_plus)
+            if (UseVoxelMapPlusBackend())
             {
                 for (auto &pt : feats_undistort_down->points)
                 {
@@ -1111,7 +1191,7 @@ int main(int argc, char **argv)
             PointCloudXYZI::Ptr feats_world(new PointCloudXYZI);
             transformLidar2World(state_point, feats_undistort_down, feats_world);
             // 用最新的状态估计将点及点的covariance转换到world系
-            if (b_use_voxelmap_plus)
+            if (UseVoxelMapPlusBackend())
             {
                 std::vector<voxel_map_plus_ns::pointWithCov> pv_list(feats_undistort_down->size());
                 for (size_t i = 0; i < feats_undistort_down->size(); i++)
@@ -1169,7 +1249,7 @@ int main(int argc, char **argv)
                 publish_frame_lidar(pubLaserCloudFull_lidar);
             if (publish_voxel_map)
             {
-                if (b_use_voxelmap_plus)
+                if (UseVoxelMapPlusBackend())
                     voxel_map_plus_ns::pubVoxelMap(voxel_map_plus, voxel_map_pub);
                 else
                     voxel_map_ns::pubVoxelMap(voxel_map, publish_max_voxel_layer, voxel_map_pub);
@@ -1205,7 +1285,8 @@ int main(int argc, char **argv)
     //* 输出结果
     if (pcl_wait_save->size() > 0 && vec_poses.size() > 0)
     {
-        std::string fpath_poses = std::string(root_dir) + (b_use_voxelmap_plus ? "pv_lio_plus_pos.txt" : "pv_lio_pos.txt");
+        std::string output_stem = GetBackendOutputStem();
+        std::string fpath_poses = std::string(root_dir) + output_stem + "_pos.txt";
         std::ofstream ofs(fpath_poses);
         ofs << std::fixed;
         for (auto pose : vec_poses)
@@ -1218,7 +1299,7 @@ int main(int argc, char **argv)
         }
         ofs.close();
 
-        std::string fpath_cloud = std::string(root_dir) + (b_use_voxelmap_plus ? "pv_lio_plus.pcd" : "pv_lio.pcd");
+        std::string fpath_cloud = std::string(root_dir) + output_stem + ".pcd";
         pcl::io::savePCDFileBinary(fpath_cloud, *pcl_wait_save);
 
         std::cout << "save results to " << fpath_poses << " and " << fpath_cloud << "\n";

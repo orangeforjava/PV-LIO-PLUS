@@ -22,6 +22,7 @@ mapping:
     max_cov_points_size: 1000
     update_size_threshold: 5
     sigma_num: 3
+    map_type: voxelmap_plus      # voxelmap / r_voxelmap / voxelmap_plus
     b_use_voxelmap_plus: true
 
     fov_degree:    360

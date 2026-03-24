@@ -199,6 +199,7 @@ mapping:
     max_cov_points_size: 1000    # 协方差计算最大点数
     update_size_threshold: 5     # 触发平面更新的最少新增点数
     sigma_num: 3                 # 异常值剔除阈值
+    map_type: voxelmap_plus      # voxelmap / r_voxelmap / voxelmap_plus
     b_use_voxelmap_plus: true    # 是否使用VoxelMap++
 
     fov_degree: 360              # 视场角
@@ -220,6 +221,7 @@ mapping:
 | `max_cov_points_size` | int | 1000 | 用于协方差计算的最大点数 |
 | `update_size_threshold` | int | 5 | 触发平面重新拟合的最少新增点数 |
 | `sigma_num` | int | 3 | 异常值剔除阈值（σ的倍数）。3σ约覆盖99.7%的正常值 |
+| `map_type` | string | voxelmap_plus | 建图后端选择。支持 `voxelmap`、`r_voxelmap`、`voxelmap_plus` |
 | `b_use_voxelmap_plus` | bool | true | 是否使用VoxelMap++算法。false则使用原始VoxelMap |
 | `fov_degree` | double | 360 | 视场角（度）。360°为全向 |
 | `det_range` | double | 100.0 | 最大检测距离（米）。超过此距离的点将被忽略 |
@@ -433,22 +435,24 @@ A: 可尝试以下优化：
 
 ---
 
-## 8. VoxelMap vs VoxelMap++ 选择
+## 8. VoxelMap / R-VoxelMap / VoxelMap++ 选择
 
-通过配置参数 `b_use_voxelmap_plus` 切换两种算法：
+优先通过配置参数 `map_type` 切换建图后端：
 
-| 特性 | VoxelMap | VoxelMap++ |
-|------|---------|------------|
-| 配置值 | `false` | `true` |
-| 数据结构 | 八叉树（多层） | 单层体素 + 并查集 |
-| 内存消耗 | 较高 | 较低 |
-| 计算效率 | 一般 | 较高 |
-| 平面拟合 | PCA全量计算 | 增量计算 |
-| 平面合并 | 不支持 | 并查集自动合并 |
-| 平面表示 | 法向量 + 中心 | ω向量（3参数） |
-| 适用场景 | 通用 | 大规模环境 |
+| 特性 | VoxelMap | R-VoxelMap | VoxelMap++ |
+|------|----------|------------|------------|
+| 配置值 | `voxelmap` | `r_voxelmap` | `voxelmap_plus` |
+| 当前代码路径 | `voxel_map_util.hpp` | `voxel_map_util.hpp` 递归体素路径 | `voxelmapplus_util.hpp` |
+| 数据结构 | 八叉树（多层） | 递归八叉树（多层） | 单层体素 + 并查集 |
+| 内存消耗 | 较高 | 较高 | 较低 |
+| 计算效率 | 一般 | 一般 | 较高 |
+| 平面拟合 | PCA全量计算 | 递归平面拟合路径 | 增量计算 |
+| 平面合并 | 不支持 | 不支持 | 并查集自动合并 |
+| 适用场景 | 通用 | 递归体素方案对比 | 大规模环境 |
 
-**推荐**：一般情况下建议使用 VoxelMap++（`b_use_voxelmap_plus: true`），其计算效率更高且内存占用更少。
+`b_use_voxelmap_plus` 仍然保留，用于兼容旧配置；当 `map_type` 被显式设置时，以 `map_type` 为准。
+
+**推荐**：一般情况下建议使用 `voxelmap_plus`，其计算效率更高且内存占用更少；若需要和递归体素方案对比，可将 `map_type` 设为 `r_voxelmap`。
 
 ---
 
