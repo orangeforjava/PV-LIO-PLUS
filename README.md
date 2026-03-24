@@ -20,7 +20,7 @@ We contribute the following improvements:
 - Fixed an issue in the error propagation formula used for calculating residual weights in PV-LIO, enabling stable operation.
 
 - Integrated the VoxelMap++ algorithm into PV-LIO framework by referencing the source code and papers of both VoxelMap and VoxelMap++, allowing algorithm selection via configuration files.
-- Added a unified `mapping/map_type` option so VoxelMap, the current `r_voxelmap` branch (implemented by reusing the recursive octree path in `include/voxel_map_util.hpp`), and VoxelMap++ can be selected from configuration for comparative evaluation.
+- Added a unified `mapping/map_type` option so VoxelMap, the paper-aligned `r_voxelmap` backend (`include/r_voxel_map_util.hpp`), and VoxelMap++ can be selected from configuration for comparative evaluation.
 
 - Addressed stability issues of the VoxelMap++ algorithm in PV-LIO framework, ensuring robust program execution.
 
