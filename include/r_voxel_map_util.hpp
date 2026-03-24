@@ -182,6 +182,10 @@ namespace r_voxel_map_ns
 
             if (best_node != nullptr)
             {
+                if (best_node != this)
+                {
+                    best_node->all_points_.push_back(pv);
+                }
                 best_node->append_plane_point(pv);
                 best_node->recompute_plane_from_inliers();
                 if (!best_node->plane_ptr_->is_plane || !best_node->passes_incremental_plane_validity_check())
