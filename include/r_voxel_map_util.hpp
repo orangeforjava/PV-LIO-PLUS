@@ -26,6 +26,10 @@ namespace r_voxel_map_ns
     static int min_points_threshold         = 5;
     static int validity_grid_divider        = 4;
     static int rebuild_point_threshold      = 24;
+    static constexpr int kNumEigenvalues = 3;
+    static constexpr int kRebuildThresholdMultiplier = 2;
+    static constexpr double kRangeValidationMultiplier = 3.0;
+    static constexpr double kTwoPi = 6.28318530717958647692;
 
     struct GridCoord
     {
@@ -46,7 +50,8 @@ namespace std
     {
         size_t operator()(const r_voxel_map_ns::GridCoord &coord) const
         {
-            return (static_cast<size_t>(coord.x) << 32) ^ static_cast<size_t>(coord.y);
+            return static_cast<size_t>((static_cast<uint64_t>(static_cast<uint32_t>(coord.x)) << 32)
+                                       ^ static_cast<uint64_t>(static_cast<uint32_t>(coord.y)));
         }
     };
 }  // namespace std
@@ -113,7 +118,7 @@ namespace r_voxel_map_ns
             std::vector<pointWithCov> inliers;
             std::vector<pointWithCov> outliers;
             const bool has_candidate = ransac_plane(points, inliers, outliers);
-            if (!has_candidate || inliers.size() <= inlier_ratio_threshold * points.size())
+            if (!has_candidate || static_cast<double>(inliers.size()) < inlier_ratio_threshold * static_cast<double>(points.size()))
             {
                 pending_outliers_ = points;
                 subdivide_outliers(points);
@@ -172,7 +177,9 @@ namespace r_voxel_map_ns
                 pending_outliers_.push_back(pv);
             }
 
-            const bool enough_new_points = new_points_since_rebuild_ >= std::max(rebuild_point_threshold, layer_point_threshold() * 2);
+            const int64_t rebuild_threshold = std::max<int64_t>(rebuild_point_threshold,
+                                                                static_cast<int64_t>(layer_point_threshold()) * kRebuildThresholdMultiplier);
+            const bool enough_new_points = static_cast<int64_t>(new_points_since_rebuild_) >= rebuild_threshold;
             const bool enough_outliers   = pending_outliers_.size() >= static_cast<size_t>(std::max(min_points_threshold, layer_point_threshold()));
             if (enough_new_points || enough_outliers)
             {
@@ -227,7 +234,7 @@ namespace r_voxel_map_ns
     private:
         int layer_point_threshold() const
         {
-            if (layer_ >= 0 && layer_ < static_cast<int>(layer_point_size_.size()))
+            if (layer_ < static_cast<int>(layer_point_size_.size()))
             {
                 return std::max(min_points_threshold, layer_point_size_[layer_]);
             }
@@ -373,7 +380,7 @@ namespace r_voxel_map_ns
             Eigen::Matrix3f::Index evalsMin, evalsMax;
             evalsReal.minCoeff(&evalsMin);
             evalsReal.maxCoeff(&evalsMax);
-            const int evalsMid = 3 - static_cast<int>(evalsMin) - static_cast<int>(evalsMax);
+            const int evalsMid = kNumEigenvalues - static_cast<int>(evalsMin) - static_cast<int>(evalsMax);
 
             if (!plane->is_init)
             {
@@ -445,7 +452,7 @@ namespace r_voxel_map_ns
                 return false;
             }
 
-            const double grid_resolution = voxel_size_ / std::max(1, validity_grid_divider);
+            const double grid_resolution = voxel_size_ / std::max(1.0, static_cast<double>(validity_grid_divider));
             if (grid_resolution <= 0.0)
             {
                 valid_inliers = inliers;
@@ -523,7 +530,7 @@ namespace r_voxel_map_ns
                 }
             }
 
-            if (best_cluster.empty() || best_cluster_points <= inlier_ratio_threshold * original_point_count)
+            if (best_cluster.empty() || static_cast<double>(best_cluster_points) < inlier_ratio_threshold * static_cast<double>(original_point_count))
             {
                 invalid_points = inliers;
                 return false;
@@ -615,15 +622,13 @@ namespace r_voxel_map_ns
 
         void rebuild_from_all_points()
         {
-            const std::vector<pointWithCov> all_points = all_points_;
-            BuildRecursive(all_points);
+            BuildRecursive(all_points_);
         }
 
         static bool evaluate_plane_candidate(const pointWithCov &pv, const Plane &plane,
                                              const int current_layer, const double sigma_num,
                                              ptpl &candidate_ptpl, double &candidate_prob)
         {
-            const double radius_k                 = 3.0;
             const Eigen::Vector3d &point_world    = pv.point_world;
             const double distance_to_plane        = std::fabs(point_world.dot(plane.normal) + plane.d);
             const double distance_to_center_sq    = (point_world - plane.center).squaredNorm();
@@ -634,7 +639,7 @@ namespace r_voxel_map_ns
             }
 
             const double range_distance = std::sqrt(projected_distance_sq);
-            if (range_distance > radius_k * plane.radius)
+            if (range_distance > kRangeValidationMultiplier * plane.radius)
             {
                 return false;
             }
@@ -654,7 +659,6 @@ namespace r_voxel_map_ns
                 return false;
             }
 
-            constexpr double kTwoPi = 6.28318530717958647692;
             candidate_prob = 1.0 / std::sqrt(kTwoPi * sigma_l)
                              * std::exp(-0.5 * distance_to_plane * distance_to_plane / sigma_l);
             candidate_ptpl.point       = pv.point_lidar;
@@ -913,7 +917,7 @@ namespace r_voxel_map_ns
             trace         = std::pow(trace * (1.0 / max_trace), pow_num);
             uint8_t r, g, b;
             voxel_map_ns::mapJet(trace, 0, 1, r, g, b);
-            Eigen::Vector3d plane_rgb(r / 256.0, g / 256.0, b / 256.0);
+            Eigen::Vector3d plane_rgb(r / 255.0, g / 255.0, b / 255.0);
             voxel_map_ns::pubSinglePlane(voxel_plane, "plane", plane, plane.is_plane ? use_alpha : 0.0F, plane_rgb);
         }
 

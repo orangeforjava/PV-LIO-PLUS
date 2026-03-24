@@ -908,7 +908,7 @@ void observation_model_share_r(state_ikfom &s, esekfom::dyn_share_datastruct<dou
         ekfom_data.R(i)        = 1.0 / (sigma_l + norm_vec.transpose() * cov * norm_vec);
     }
 
-    res_mean_last = total_residual / effct_feat_num;
+    res_mean_last = 0.0;
 }
 
 void observation_model_share_plus(state_ikfom &s, esekfom::dyn_share_datastruct<double> &ekfom_data)
@@ -1044,8 +1044,10 @@ int main(int argc, char **argv)
         nh.param<vector<double>>("mapping/extrinsic_R", extrinR, vector<double>());
         nh.param<int>("mapping/update_size_threshold", voxel_map_plus_ns::update_size_threshold, 5);
         nh.param<double>("mapping/sigma_num", sigma_num, 3);
+        constexpr double r_voxel_min_ransac_distance = 0.08;   // meters, avoid an overly strict threshold on small voxels
+        constexpr double r_voxel_ransac_distance_ratio = 0.10; // 10% of voxel size keeps the threshold scale-aware
         nh.param<double>("mapping/r_voxelmap_ransac_distance_threshold", r_voxel_map_ns::ransac_distance_threshold,
-                         std::max(0.08, voxel_size * 0.10));
+                         std::max(r_voxel_min_ransac_distance, voxel_size * r_voxel_ransac_distance_ratio));
         nh.param<double>("mapping/r_voxelmap_inlier_ratio_threshold", r_voxel_map_ns::inlier_ratio_threshold, 0.55);
         nh.param<int>("mapping/r_voxelmap_ransac_iterations", r_voxel_map_ns::ransac_iterations, 40);
         nh.param<int>("mapping/r_voxelmap_min_points_threshold", r_voxel_map_ns::min_points_threshold, 5);

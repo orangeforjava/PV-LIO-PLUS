@@ -229,7 +229,7 @@ mapping:
 | `sigma_num` | int | 3 | 异常值剔除阈值（σ的倍数）。3σ约覆盖99.7%的正常值 |
 | `map_type` | string | voxelmap_plus | 建图后端选择。支持 `voxelmap`、`r_voxelmap`、`voxelmap_plus` |
 | `b_use_voxelmap_plus` | bool | true | 是否使用VoxelMap++算法。false则使用原始VoxelMap |
-| `r_voxelmap_ransac_distance_threshold` | double | max(0.08, 0.1×voxel_size) | `r_voxelmap` 的RANSAC点到平面距离阈值 |
+| `r_voxelmap_ransac_distance_threshold` | double | max(0.08, 0.1*voxel_size) | `r_voxelmap` 的RANSAC点到平面距离阈值 |
 | `r_voxelmap_inlier_ratio_threshold` | double | 0.55 | `r_voxelmap` 中平面初始化和有效性检查共同使用的最小内点比例 |
 | `r_voxelmap_ransac_iterations` | int | 40 | `r_voxelmap` 每个体素节点执行RANSAC的迭代次数 |
 | `r_voxelmap_min_points_threshold` | int | 5 | `r_voxelmap` 递归到子体素前要求的最少点数 |
@@ -239,7 +239,7 @@ mapping:
 | `det_range` | double | 100.0 | 最大检测距离（米）。超过此距离的点将被忽略 |
 | `extrinsic_est_en` | bool | false | 是否在线估计LiDAR-IMU外参。建议先标定好设为false |
 | `extrinsic_T` | list[3] | - | LiDAR到IMU的平移向量 [x, y, z]（米） |
-| `extrinsic_R` | list[9] | - | LiDAR到IMU的旋转矩阵（行优先，3×3） |
+| `extrinsic_R` | list[9] | - | LiDAR到IMU的旋转矩阵（行优先，3*3） |
 
 #### 体素大小选择建议
 
@@ -382,7 +382,7 @@ p_imu = R_extrinsic * p_lidar + T_extrinsic
 ```
 
 - **平移外参 extrinsic_T**：[x, y, z]，单位为米
-- **旋转外参 extrinsic_R**：行优先的3×3旋转矩阵，以9个元素的列表表示
+- **旋转外参 extrinsic_R**：行优先的3*3旋转矩阵，以9个元素的列表表示
 
 可以通过CAD模型或外参标定工具（如[lidar_imu_calib](https://github.com/hku-mars/lidar_IMU_calib)）获取。
 
