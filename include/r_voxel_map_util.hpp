@@ -65,7 +65,7 @@ namespace r_voxel_map_ns
     {
     public:
         std::vector<pointWithCov> all_points_;
-        std::vector<pointWithCov> plane_points_;
+        std::vector<pointWithCov> plane_points_;  // bounded support sample for plane covariance recomputation
         std::vector<pointWithCov> pending_outliers_;
         Plane *plane_ptr_;
         int max_layer_;
@@ -155,6 +155,7 @@ namespace r_voxel_map_ns
             plane_points_ = valid_inliers;
             init_plane_from_points(plane_points_, plane_ptr_);
             initialize_plane_statistics(plane_points_);
+            trim_plane_covariance_points();
             plane_ptr_->is_update = true;
 
             pending_outliers_ = outliers;
@@ -279,6 +280,23 @@ namespace r_voxel_map_ns
             plane_points_count_ = 0;
         }
 
+        size_t covariance_support_limit() const
+        {
+            return max_cov_points_size_ > 0 ? static_cast<size_t>(max_cov_points_size_) : 0U;
+        }
+
+        void trim_plane_covariance_points()
+        {
+            const size_t limit = covariance_support_limit();
+            if (limit == 0 || plane_points_.size() <= limit)
+            {
+                return;
+            }
+            plane_points_.erase(plane_points_.begin(),
+                                plane_points_.begin()
+                                    + static_cast<std::vector<pointWithCov>::difference_type>(plane_points_.size() - limit));
+        }
+
         void initialize_plane_statistics(const std::vector<pointWithCov> &points)
         {
             reset_plane_statistics();
@@ -293,6 +311,7 @@ namespace r_voxel_map_ns
         void append_plane_point(const pointWithCov &pv)
         {
             plane_points_.push_back(pv);
+            trim_plane_covariance_points();
             plane_sum_points_ += pv.point_world;
             plane_sum_outer_products_ += pv.point_world * pv.point_world.transpose();
             ++plane_points_count_;
