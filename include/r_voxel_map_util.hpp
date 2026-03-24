@@ -673,7 +673,7 @@ namespace r_voxel_map_ns
 
         void recompute_plane_from_inliers()
         {
-            if (plane_points_count_ < 1)
+            if (plane_points_count_ < 3)
             {
                 plane_ptr_->is_plane = false;
                 return;
@@ -914,8 +914,8 @@ namespace r_voxel_map_ns
             feat_map[entry.first] = octo_tree;
             octo_tree->BuildRecursive(entry.second);
             TouchVoxelLRU(entry.first);
+            EvictOverflowVoxels(feat_map);
         }
-        EvictOverflowVoxels(feat_map);
     }
 
     inline void updateVoxelMapOMP(const std::vector<pointWithCov> &input_points,
