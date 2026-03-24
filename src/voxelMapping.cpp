@@ -1124,11 +1124,11 @@ int main(int argc, char **argv)
 
                 double map_build_time = (ros::WallTime::now() - t1).toSec();
                 if (UseVoxelMapPlusBackend())
-                    std::cout << std::fixed << "[Init Map] Build voxel map plus: " << map_build_time * 1000 << "s\n";
+                    std::cout << std::fixed << "[Init Map] Build voxel map plus: " << map_build_time * 1000 << "ms\n";
                 else if (g_map_backend == MapBackend::R_VOXELMAP)
-                    std::cout << std::fixed << "[Init Map] Build r-voxelmap: " << map_build_time * 1000 << "s\n";
+                    std::cout << std::fixed << "[Init Map] Build r-voxelmap: " << map_build_time * 1000 << "ms\n";
                 else
-                    std::cout << std::fixed << "[Init Map] Build voxel map: " << map_build_time * 1000 << "s \n";
+                    std::cout << std::fixed << "[Init Map] Build voxel map: " << map_build_time * 1000 << "ms\n";
 
                 init_map = true;
                 continue;

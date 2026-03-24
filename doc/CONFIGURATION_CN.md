@@ -442,13 +442,13 @@ A: 可尝试以下优化：
 | 特性 | VoxelMap | R-VoxelMap | VoxelMap++ |
 |------|----------|------------|------------|
 | 配置值 | `voxelmap` | `r_voxelmap` | `voxelmap_plus` |
-| 当前代码路径 | `voxel_map_util.hpp` | `voxel_map_util.hpp` 递归体素路径 | `voxelmapplus_util.hpp` |
+| 当前代码路径 | `voxel_map_util.hpp` | `voxel_map_util.hpp`（单独暴露递归八叉树路径用于对比） | `voxelmapplus_util.hpp` |
 | 数据结构 | 八叉树（多层） | 递归八叉树（多层） | 单层体素 + 并查集 |
 | 内存消耗 | 较高 | 较高 | 较低 |
 | 计算效率 | 一般 | 一般 | 较高 |
-| 平面拟合 | PCA全量计算 | 递归平面拟合路径 | 增量计算 |
+| 平面拟合 | PCA全量计算 | PCA全量计算（递归八叉树） | 增量计算 |
 | 平面合并 | 不支持 | 不支持 | 并查集自动合并 |
-| 适用场景 | 通用 | 递归体素方案对比 | 大规模环境 |
+| 适用场景 | 通用 | 实验对比递归体素方案 | 大规模环境 |
 
 `b_use_voxelmap_plus` 仍然保留，用于兼容旧配置；当 `map_type` 被显式设置时，以 `map_type` 为准。
 
