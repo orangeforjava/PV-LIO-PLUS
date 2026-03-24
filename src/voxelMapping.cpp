@@ -1053,6 +1053,7 @@ int main(int argc, char **argv)
         nh.param<int>("mapping/r_voxelmap_min_points_threshold", r_voxel_map_ns::min_points_threshold, 5);
         nh.param<int>("mapping/r_voxelmap_validity_grid_divider", r_voxel_map_ns::validity_grid_divider, 4);
         nh.param<int>("mapping/r_voxelmap_rebuild_point_threshold", r_voxel_map_ns::rebuild_point_threshold, 24);
+        nh.param<int>("mapping/r_voxelmap_max_voxel_count", r_voxel_map_ns::max_voxel_count, 50000);
         std::string map_type;
         nh.param<bool>("mapping/b_use_voxelmap_plus", b_use_voxelmap_plus, false);
         nh.param<string>("mapping/map_type", map_type, "");

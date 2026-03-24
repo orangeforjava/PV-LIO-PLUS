@@ -207,6 +207,7 @@ mapping:
     r_voxelmap_min_points_threshold: 5         # R-VoxelMap递归子体素最少点数
     r_voxelmap_validity_grid_divider: 4        # R-VoxelMap平面有效性检查网格细分
     r_voxelmap_rebuild_point_threshold: 24     # R-VoxelMap触发整棵低分辨率体素重建的新增点数
+    r_voxelmap_max_voxel_count: 50000          # R-VoxelMap根体素LRU缓存上限，<=0表示不限制
 
     fov_degree: 360              # 视场角
     det_range: 100.0             # 最大检测距离
@@ -235,6 +236,7 @@ mapping:
 | `r_voxelmap_min_points_threshold` | int | 5 | `r_voxelmap` 递归到子体素前要求的最少点数 |
 | `r_voxelmap_validity_grid_divider` | int | 4 | `r_voxelmap` 平面有效性检查中，二维投影网格边长 = `voxel_size / divider` |
 | `r_voxelmap_rebuild_point_threshold` | int | 24 | `r_voxelmap` 低分辨率体素累计新增点后触发整棵八叉树重建 |
+| `r_voxelmap_max_voxel_count` | int | 50000 | `r_voxelmap` 根体素哈希表的LRU缓存上限。超过后按最近最少使用顺序回收旧体素；设为 `<=0` 表示不限制 |
 | `fov_degree` | double | 360 | 视场角（度）。360°为全向 |
 | `det_range` | double | 100.0 | 最大检测距离（米）。超过此距离的点将被忽略 |
 | `extrinsic_est_en` | bool | false | 是否在线估计LiDAR-IMU外参。建议先标定好设为false |
@@ -464,7 +466,7 @@ A: 可尝试以下优化：
 
 `b_use_voxelmap_plus` 仍然保留，用于兼容旧配置；当 `map_type` 被显式设置时，以 `map_type` 为准。
 
-当前仓库里 `r_voxelmap` 已经拆分为单独的 `include/r_voxel_map_util.hpp` 实现，并在 `src/voxelMapping.cpp` 中通过 `MapBackend::R_VOXELMAP` 分支接入。它实现了论文中的三项核心流程：RANSAC平面提取、二维投影聚类平面有效性检查，以及离群点向子体素递归复用。
+当前仓库里 `r_voxelmap` 已经拆分为单独的 `include/r_voxel_map_util.hpp` 实现，并在 `src/voxelMapping.cpp` 中通过 `MapBackend::R_VOXELMAP` 分支接入。它实现了论文中的核心流程：RANSAC平面提取、二维投影聚类平面有效性检查、离群点向子体素递归复用、平面统计量增量更新，以及根体素级LRU缓存回收。
 
 **推荐**：一般情况下建议先根据场景对比 `voxelmap_plus` 与 `r_voxelmap`；若场景中存在较多离群点、植被或相邻物理平面易被误并的问题，可优先尝试 `r_voxelmap`。
 

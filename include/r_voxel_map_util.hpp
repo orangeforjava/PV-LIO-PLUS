@@ -6,7 +6,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <list>
 #include <limits>
+#include <mutex>
 #include <random>
 #include <stack>
 #include <unordered_set>
@@ -26,6 +28,7 @@ namespace r_voxel_map_ns
     static int min_points_threshold         = 5;
     static int validity_grid_divider        = 4;
     static int rebuild_point_threshold      = 24;
+    static int max_voxel_count              = 50000;
     static constexpr int kNumEigenvalues = 3;
     static constexpr int kRebuildThresholdMultiplier = 2;
     static constexpr double kRangeValidationMultiplier = 3.0;
@@ -78,13 +81,18 @@ namespace r_voxel_map_ns
         bool is_root_;
         int new_points_since_rebuild_;
         bool init_octo_;
+        Eigen::Vector3d plane_sum_points_;
+        Eigen::Matrix3d plane_sum_outer_products_;
+        int plane_points_count_;
 
         OctoTree(int max_layer, int layer, std::vector<int> layer_point_size,
                  int max_point_size, int max_cov_points_size, float planer_threshold,
                  float voxel_size, bool is_root = false)
             : plane_ptr_(new Plane), max_layer_(max_layer), layer_(layer), layer_point_size_(std::move(layer_point_size)), quater_length_(0.0F),
               max_points_size_(max_point_size), max_cov_points_size_(max_cov_points_size), planer_threshold_(planer_threshold),
-              voxel_size_(voxel_size), is_root_(is_root), new_points_since_rebuild_(0), init_octo_(false)
+              voxel_size_(voxel_size), is_root_(is_root), new_points_since_rebuild_(0), init_octo_(false),
+              plane_sum_points_(Eigen::Vector3d::Zero()), plane_sum_outer_products_(Eigen::Matrix3d::Zero()),
+              plane_points_count_(0)
         {
             voxel_center_[0] = voxel_center_[1] = voxel_center_[2] = 0.0;
             for (int i = 0; i < 8; ++i)
@@ -106,6 +114,7 @@ namespace r_voxel_map_ns
             plane_ptr_->update_enable = true;
             plane_points_.clear();
             pending_outliers_.clear();
+            reset_plane_statistics();
             all_points_       = points;
             init_octo_        = true;
             new_points_since_rebuild_ = 0;
@@ -145,6 +154,7 @@ namespace r_voxel_map_ns
 
             plane_points_ = valid_inliers;
             init_plane_from_points(plane_points_, plane_ptr_);
+            initialize_plane_statistics(plane_points_);
             plane_ptr_->is_update = true;
 
             pending_outliers_ = outliers;
@@ -164,7 +174,7 @@ namespace r_voxel_map_ns
 
             if (best_node != nullptr)
             {
-                best_node->plane_points_.push_back(pv);
+                best_node->append_plane_point(pv);
                 best_node->recompute_plane_from_inliers();
                 if (!best_node->plane_ptr_->is_plane)
                 {
@@ -232,6 +242,15 @@ namespace r_voxel_map_ns
         }
 
     private:
+        struct PlaneEigenData
+        {
+            Eigen::Matrix3cd evecs    = Eigen::Matrix3cd::Identity();
+            Eigen::Vector3d evalsReal = Eigen::Vector3d::Zero();
+            int evalsMin              = 0;
+            int evalsMid              = 1;
+            int evalsMax              = 2;
+        };
+
         int layer_point_threshold() const
         {
             if (layer_ < static_cast<int>(layer_point_size_.size()))
@@ -251,6 +270,32 @@ namespace r_voxel_map_ns
                     leaves_[i] = nullptr;
                 }
             }
+        }
+
+        void reset_plane_statistics()
+        {
+            plane_sum_points_.setZero();
+            plane_sum_outer_products_.setZero();
+            plane_points_count_ = 0;
+        }
+
+        void initialize_plane_statistics(const std::vector<pointWithCov> &points)
+        {
+            reset_plane_statistics();
+            for (const auto &pv : points)
+            {
+                plane_sum_points_ += pv.point_world;
+                plane_sum_outer_products_ += pv.point_world * pv.point_world.transpose();
+            }
+            plane_points_count_ = static_cast<int>(points.size());
+        }
+
+        void append_plane_point(const pointWithCov &pv)
+        {
+            plane_points_.push_back(pv);
+            plane_sum_points_ += pv.point_world;
+            plane_sum_outer_products_ += pv.point_world * pv.point_world.transpose();
+            ++plane_points_count_;
         }
 
         static bool fit_plane_from_three_points(const pointWithCov &p1, const pointWithCov &p2,
@@ -348,39 +393,40 @@ namespace r_voxel_map_ns
             return true;
         }
 
-        void init_plane_from_points(const std::vector<pointWithCov> &points, Plane *plane) const
+        bool solve_plane_from_statistics(const Eigen::Vector3d &sum_points,
+                                         const Eigen::Matrix3d &sum_outer_products,
+                                         const int point_count,
+                                         Plane *plane,
+                                         PlaneEigenData &eigen_data) const
         {
             plane->plane_cov   = Eigen::Matrix<double, 6, 6>::Zero();
             plane->covariance  = Eigen::Matrix3d::Zero();
             plane->center      = Eigen::Vector3d::Zero();
             plane->normal      = Eigen::Vector3d::Zero();
-            plane->points_size = static_cast<int>(points.size());
+            plane->points_size = point_count;
             plane->radius      = 0.0F;
 
-            if (points.size() < 3)
+            if (point_count < 3)
             {
                 plane->is_plane = false;
                 plane->is_init  = true;
-                return;
+                return false;
             }
 
-            for (const auto &pv : points)
-            {
-                plane->covariance += pv.point_world * pv.point_world.transpose();
-                plane->center += pv.point_world;
-            }
-            plane->center /= plane->points_size;
-            plane->covariance /= plane->points_size;
-            plane->covariance -= plane->center * plane->center.transpose();
+            plane->center = sum_points / static_cast<double>(point_count);
+            plane->covariance = sum_outer_products / static_cast<double>(point_count)
+                                - plane->center * plane->center.transpose();
 
             Eigen::EigenSolver<Eigen::Matrix3d> es(plane->covariance);
-            Eigen::Matrix3cd evecs    = es.eigenvectors();
-            Eigen::Vector3cd evals    = es.eigenvalues();
-            Eigen::Vector3d evalsReal = evals.real();
-            Eigen::Matrix3f::Index evalsMin, evalsMax;
-            evalsReal.minCoeff(&evalsMin);
-            evalsReal.maxCoeff(&evalsMax);
-            const int evalsMid = kNumEigenvalues - static_cast<int>(evalsMin) - static_cast<int>(evalsMax);
+            eigen_data.evecs    = es.eigenvectors();
+            Eigen::Vector3cd evals = es.eigenvalues();
+            eigen_data.evalsReal = evals.real();
+            Eigen::Matrix3f::Index evalsMinIndex, evalsMaxIndex;
+            eigen_data.evalsReal.minCoeff(&evalsMinIndex);
+            eigen_data.evalsReal.maxCoeff(&evalsMaxIndex);
+            eigen_data.evalsMin = static_cast<int>(evalsMinIndex);
+            eigen_data.evalsMax = static_cast<int>(evalsMaxIndex);
+            eigen_data.evalsMid = kNumEigenvalues - eigen_data.evalsMin - eigen_data.evalsMax;
 
             if (!plane->is_init)
             {
@@ -394,49 +440,71 @@ namespace r_voxel_map_ns
                 plane->is_update               = true;
             }
 
-            plane->normal          = evecs.real().col(evalsMin);
-            plane->y_normal        = evecs.real().col(evalsMid);
-            plane->x_normal        = evecs.real().col(evalsMax);
-            plane->min_eigen_value = evalsReal(evalsMin);
-            plane->mid_eigen_value = evalsReal(evalsMid);
-            plane->max_eigen_value = evalsReal(evalsMax);
-            plane->radius          = std::sqrt(std::max(0.0, evalsReal(evalsMax)));
+            plane->normal          = eigen_data.evecs.real().col(eigen_data.evalsMin);
+            plane->y_normal        = eigen_data.evecs.real().col(eigen_data.evalsMid);
+            plane->x_normal        = eigen_data.evecs.real().col(eigen_data.evalsMax);
+            plane->min_eigen_value = eigen_data.evalsReal(eigen_data.evalsMin);
+            plane->mid_eigen_value = eigen_data.evalsReal(eigen_data.evalsMid);
+            plane->max_eigen_value = eigen_data.evalsReal(eigen_data.evalsMax);
+            plane->radius          = std::sqrt(std::max(0.0, eigen_data.evalsReal(eigen_data.evalsMax)));
             plane->d               = -(plane->normal.dot(plane->center));
+            plane->is_plane        = eigen_data.evalsReal(eigen_data.evalsMin) < planer_threshold_;
+            return plane->is_plane;
+        }
 
-            if (evalsReal(evalsMin) < planer_threshold_)
+        void recompute_plane_covariance(const std::vector<pointWithCov> &points,
+                                        const PlaneEigenData &eigen_data,
+                                        Plane *plane) const
+        {
+            plane->plane_cov = Eigen::Matrix<double, 6, 6>::Zero();
+            if (!plane->is_plane || points.empty())
             {
-                Eigen::Matrix3d J_Q;
-                J_Q << 1.0 / plane->points_size, 0, 0, 0, 1.0 / plane->points_size, 0, 0, 0, 1.0 / plane->points_size;
-
-                for (size_t i = 0; i < points.size(); ++i)
-                {
-                    Eigen::Matrix<double, 6, 3> J;
-                    Eigen::Matrix3d F = Eigen::Matrix3d::Zero();
-                    for (int m = 0; m < 3; ++m)
-                    {
-                        if (m != static_cast<int>(evalsMin))
-                        {
-                            const double denom = (plane->points_size) * (evalsReal[evalsMin] - evalsReal[m]);
-                            if (std::fabs(denom) < 1e-12)
-                            {
-                                continue;
-                            }
-                            F.row(m) = (points[i].point_world - plane->center).transpose()
-                                       / denom
-                                       * (evecs.real().col(m) * evecs.real().col(evalsMin).transpose()
-                                          + evecs.real().col(evalsMin) * evecs.real().col(m).transpose());
-                        }
-                    }
-                    J.block<3, 3>(0, 0) = evecs.real() * F;
-                    J.block<3, 3>(3, 0) = J_Q;
-                    plane->plane_cov += J * points[i].cov_world * J.transpose();
-                }
-
-                plane->is_plane = true;
+                return;
             }
-            else
+
+            Eigen::Matrix3d J_Q;
+            J_Q << 1.0 / plane->points_size, 0, 0, 0, 1.0 / plane->points_size, 0, 0, 0, 1.0 / plane->points_size;
+
+            for (size_t i = 0; i < points.size(); ++i)
             {
-                plane->is_plane = false;
+                Eigen::Matrix<double, 6, 3> J;
+                Eigen::Matrix3d F = Eigen::Matrix3d::Zero();
+                for (int m = 0; m < 3; ++m)
+                {
+                    if (m == eigen_data.evalsMin)
+                    {
+                        continue;
+                    }
+                    const double denom = static_cast<double>(plane->points_size)
+                                         * (eigen_data.evalsReal[eigen_data.evalsMin] - eigen_data.evalsReal[m]);
+                    if (std::fabs(denom) < 1e-12)
+                    {
+                        continue;
+                    }
+                    F.row(m) = (points[i].point_world - plane->center).transpose()
+                               / denom
+                               * (eigen_data.evecs.real().col(m) * eigen_data.evecs.real().col(eigen_data.evalsMin).transpose()
+                                  + eigen_data.evecs.real().col(eigen_data.evalsMin) * eigen_data.evecs.real().col(m).transpose());
+                }
+                J.block<3, 3>(0, 0) = eigen_data.evecs.real() * F;
+                J.block<3, 3>(3, 0) = J_Q;
+                plane->plane_cov += J * points[i].cov_world * J.transpose();
+            }
+        }
+
+        void init_plane_from_points(const std::vector<pointWithCov> &points, Plane *plane) const
+        {
+            Eigen::Vector3d sum_points = Eigen::Vector3d::Zero();
+            Eigen::Matrix3d sum_outer_products = Eigen::Matrix3d::Zero();
+            for (const auto &pv : points)
+            {
+                sum_points += pv.point_world;
+                sum_outer_products += pv.point_world * pv.point_world.transpose();
+            }
+            PlaneEigenData eigen_data;
+            if (solve_plane_from_statistics(sum_points, sum_outer_products, static_cast<int>(points.size()), plane, eigen_data))
+            {
+                recompute_plane_covariance(points, eigen_data, plane);
             }
         }
 
@@ -605,18 +673,17 @@ namespace r_voxel_map_ns
 
         void recompute_plane_from_inliers()
         {
-            if (plane_points_.empty())
+            if (plane_points_count_ < 1)
             {
                 plane_ptr_->is_plane = false;
                 return;
             }
 
-            if (plane_points_.size() > static_cast<size_t>(max_points_size_))
+            PlaneEigenData eigen_data;
+            if (solve_plane_from_statistics(plane_sum_points_, plane_sum_outer_products_, plane_points_count_, plane_ptr_, eigen_data))
             {
-                plane_points_.erase(plane_points_.begin(),
-                                    plane_points_.begin() + (plane_points_.size() - max_points_size_));
+                recompute_plane_covariance(plane_points_, eigen_data, plane_ptr_);
             }
-            init_plane_from_points(plane_points_, plane_ptr_);
             plane_ptr_->is_update = true;
         }
 
@@ -755,6 +822,77 @@ namespace r_voxel_map_ns
         return octo_tree;
     }
 
+    inline std::list<VOXEL_LOC> &VoxelLRUList()
+    {
+        static std::list<VOXEL_LOC> voxel_lru_list;
+        return voxel_lru_list;
+    }
+
+    inline std::mutex &VoxelLRUMutex()
+    {
+        static std::mutex voxel_lru_mutex;
+        return voxel_lru_mutex;
+    }
+
+    inline std::unordered_map<VOXEL_LOC, std::list<VOXEL_LOC>::iterator> &VoxelLRUIndex()
+    {
+        static std::unordered_map<VOXEL_LOC, std::list<VOXEL_LOC>::iterator> voxel_lru_index;
+        return voxel_lru_index;
+    }
+
+    inline void ResetVoxelLRUState()
+    {
+        std::lock_guard<std::mutex> lock(VoxelLRUMutex());
+        VoxelLRUList().clear();
+        VoxelLRUIndex().clear();
+    }
+
+    inline void TouchVoxelLRU(const VOXEL_LOC &position)
+    {
+        if (max_voxel_count <= 0)
+        {
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(VoxelLRUMutex());
+        auto &voxel_lru_list  = VoxelLRUList();
+        auto &voxel_lru_index = VoxelLRUIndex();
+        auto iter = voxel_lru_index.find(position);
+        if (iter != voxel_lru_index.end())
+        {
+            voxel_lru_list.splice(voxel_lru_list.begin(), voxel_lru_list, iter->second);
+            iter->second = voxel_lru_list.begin();
+            return;
+        }
+
+        voxel_lru_list.push_front(position);
+        voxel_lru_index[position] = voxel_lru_list.begin();
+    }
+
+    inline void EvictOverflowVoxels(std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map)
+    {
+        if (max_voxel_count <= 0)
+        {
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(VoxelLRUMutex());
+        auto &voxel_lru_list  = VoxelLRUList();
+        auto &voxel_lru_index = VoxelLRUIndex();
+        while (static_cast<int>(feat_map.size()) > max_voxel_count && !voxel_lru_list.empty())
+        {
+            const VOXEL_LOC &evict_position = voxel_lru_list.back();
+            auto map_iter = feat_map.find(evict_position);
+            if (map_iter != feat_map.end())
+            {
+                delete map_iter->second;
+                feat_map.erase(map_iter);
+            }
+            voxel_lru_index.erase(evict_position);
+            voxel_lru_list.pop_back();
+        }
+    }
+
     inline void buildVoxelMap(const std::vector<pointWithCov> &input_points,
                               const float voxel_size, const int max_layer,
                               const std::vector<int> &layer_point_size,
@@ -762,6 +900,7 @@ namespace r_voxel_map_ns
                               const float planer_threshold,
                               std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map)
     {
+        ResetVoxelLRUState();
         std::unordered_map<VOXEL_LOC, std::vector<pointWithCov>> grouped_points;
         for (const auto &point : input_points)
         {
@@ -774,7 +913,9 @@ namespace r_voxel_map_ns
                                                  max_points_size, max_cov_points_size, planer_threshold);
             feat_map[entry.first] = octo_tree;
             octo_tree->BuildRecursive(entry.second);
+            TouchVoxelLRU(entry.first);
         }
+        EvictOverflowVoxels(feat_map);
     }
 
     inline void updateVoxelMapOMP(const std::vector<pointWithCov> &input_points,
@@ -799,8 +940,12 @@ namespace r_voxel_map_ns
                                                      max_points_size, max_cov_points_size, planer_threshold);
                 feat_map[entry.first] = octo_tree;
                 octo_tree->BuildRecursive(entry.second);
+                TouchVoxelLRU(entry.first);
+                EvictOverflowVoxels(feat_map);
                 continue;
             }
+
+            TouchVoxelLRU(entry.first);
 
             for (const auto &point : entry.second)
             {
@@ -834,6 +979,7 @@ namespace r_voxel_map_ns
             {
                 continue;
             }
+            TouchVoxelLRU(position);
 
             ptpl single_ptpl;
             bool is_success = false;
@@ -871,6 +1017,7 @@ namespace r_voxel_map_ns
                 auto near_iter = voxel_map.find(near_position);
                 if (near_iter != voxel_map.end())
                 {
+                    TouchVoxelLRU(near_position);
                     near_iter->second->FindBestMatch(pv, sigma_num, is_success, prob, single_ptpl);
                 }
             }

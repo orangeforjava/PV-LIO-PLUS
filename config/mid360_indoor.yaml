@@ -24,6 +24,7 @@ mapping:
     sigma_num: 3
     map_type: voxelmap_plus      # voxelmap / r_voxelmap / voxelmap_plus
     b_use_voxelmap_plus: true
+    r_voxelmap_max_voxel_count: 50000  # r_voxelmap 根体素LRU缓存上限，<=0 表示不限制
 
     fov_degree:    360
     det_range:     100.0
