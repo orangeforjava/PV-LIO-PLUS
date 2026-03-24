@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <iterator>
 #include <list>
 #include <limits>
 #include <mutex>
@@ -65,7 +67,7 @@ namespace r_voxel_map_ns
     {
     public:
         std::vector<pointWithCov> all_points_;
-        std::vector<pointWithCov> plane_points_;  // bounded support sample for plane covariance recomputation
+        std::list<pointWithCov> plane_points_;  // linked support sample for plane covariance recomputation
         std::vector<pointWithCov> pending_outliers_;
         Plane *plane_ptr_;
         int max_layer_;
@@ -152,10 +154,15 @@ namespace r_voxel_map_ns
                 return;
             }
 
-            plane_points_ = valid_inliers;
-            init_plane_from_points(plane_points_, plane_ptr_);
-            initialize_plane_statistics(plane_points_);
-            trim_plane_covariance_points();
+            const size_t support_limit = covariance_support_limit();
+            auto support_begin = valid_inliers.begin();
+            if (support_limit > 0 && valid_inliers.size() > support_limit)
+            {
+                support_begin = valid_inliers.end() - static_cast<std::ptrdiff_t>(support_limit);
+            }
+            plane_points_.assign(support_begin, valid_inliers.end());
+            init_plane_from_points(valid_inliers, plane_ptr_);
+            initialize_plane_statistics(valid_inliers);
             plane_ptr_->is_update = true;
 
             pending_outliers_ = outliers;
@@ -288,13 +295,14 @@ namespace r_voxel_map_ns
         void trim_plane_covariance_points()
         {
             const size_t limit = covariance_support_limit();
-            if (limit == 0 || plane_points_.size() <= limit)
+            if (limit == 0)
             {
                 return;
             }
-            plane_points_.erase(plane_points_.begin(),
-                                plane_points_.begin()
-                                    + static_cast<std::vector<pointWithCov>::difference_type>(plane_points_.size() - limit));
+            while (plane_points_.size() > limit)
+            {
+                plane_points_.pop_front();
+            }
         }
 
         void initialize_plane_statistics(const std::vector<pointWithCov> &points)
@@ -471,7 +479,8 @@ namespace r_voxel_map_ns
             return plane->is_plane;
         }
 
-        void recompute_plane_covariance(const std::vector<pointWithCov> &points,
+        template <typename PointContainer>
+        void recompute_plane_covariance(const PointContainer &points,
                                         const PlaneEigenData &eigen_data,
                                         Plane *plane) const
         {
@@ -484,7 +493,7 @@ namespace r_voxel_map_ns
             Eigen::Matrix3d J_Q;
             J_Q << 1.0 / plane->points_size, 0, 0, 0, 1.0 / plane->points_size, 0, 0, 0, 1.0 / plane->points_size;
 
-            for (size_t i = 0; i < points.size(); ++i)
+            for (const auto &point : points)
             {
                 Eigen::Matrix<double, 6, 3> J;
                 Eigen::Matrix3d F = Eigen::Matrix3d::Zero();
@@ -500,14 +509,14 @@ namespace r_voxel_map_ns
                     {
                         continue;
                     }
-                    F.row(m) = (points[i].point_world - plane->center).transpose()
+                    F.row(m) = (point.point_world - plane->center).transpose()
                                / denom
                                * (eigen_data.evecs.real().col(m) * eigen_data.evecs.real().col(eigen_data.evalsMin).transpose()
                                   + eigen_data.evecs.real().col(eigen_data.evalsMin) * eigen_data.evecs.real().col(m).transpose());
                 }
                 J.block<3, 3>(0, 0) = eigen_data.evecs.real() * F;
                 J.block<3, 3>(3, 0) = J_Q;
-                plane->plane_cov += J * points[i].cov_world * J.transpose();
+                plane->plane_cov += J * point.cov_world * J.transpose();
             }
         }
 
